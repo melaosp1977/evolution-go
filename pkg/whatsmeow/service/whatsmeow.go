@@ -403,6 +403,13 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 		}
 	}
 
+	// FIX 405 (client outdated): a versao usada na conexao vem de store.GetWAVersion(),
+	// e nao de DeviceProps. Aplica a versao escolhida (env ou WhatsApp Web) na conexao.
+	if version.Major > 0 && version.Minor > 0 && version.Patch > 0 {
+		store.SetWAVersion(store.WAVersionContainer{uint32(version.Major), uint32(version.Minor), uint32(version.Patch)})
+		w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Connection WA version set to %d.%d.%d", cd.Instance.Id, version.Major, version.Minor, version.Patch)
+	}
+
 	// 🔒 FIX: Sempre criar logger, mesmo que WaDebug esteja vazio
 	// Usar "INFO" como nível mínimo para garantir que logs importantes apareçam
 	minLevel := w.config.WaDebug
