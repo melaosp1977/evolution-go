@@ -3200,8 +3200,7 @@ func (s *sendService) SendStatusText(data *StatusTextStruct, instance *instance_
 		MessageContextInfo: &waE2E.ContextInfo{
 			StanzaID:      proto.String(""),
 			Participant:   proto.String(""),
-			QuotedMessage: quotedMsg(data.Quoted),
-			RemoteJID:     quotedRemote(data.Quoted),
+			QuotedMessage: &waE2E.Message{Conversation: proto.String("")},
 		},
 	}
 
@@ -3357,8 +3356,7 @@ func (s *sendService) sendStatusMedia(client *whatsmeow.Client, data *StatusMedi
 		MessageContextInfo: &waE2E.ContextInfo{
 			StanzaID:      proto.String(""),
 			Participant:   proto.String(""),
-			QuotedMessage: quotedMsg(data.Quoted),
-			RemoteJID:     quotedRemote(data.Quoted),
+			QuotedMessage: &waE2E.Message{Conversation: proto.String("")},
 		},
 	}
 
