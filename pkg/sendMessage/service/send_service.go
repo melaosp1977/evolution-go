@@ -70,6 +70,7 @@ type SendDataStruct struct {
 	MediaHandle     string
 	AdditionalNodes *[]waBinary.Node
 	ForwardingScore *uint32
+	Expiration      *uint32
 }
 
 type QuotedStruct struct {
@@ -102,6 +103,8 @@ type TextStruct struct {
 	FormatJid       *bool        `json:"formatJid,omitempty"`
 	Quoted          QuotedStruct `json:"quoted"`
 	ForwardingScore *uint32      `json:"forwardingScore,omitempty"`
+	// Expiration: timer de mensagem temporaria em segundos (opcional; detectado automaticamente)
+	Expiration *uint32 `json:"expiration,omitempty"`
 }
 
 type LinkStruct struct {
@@ -132,6 +135,8 @@ type MediaStruct struct {
 	FormatJid       *bool        `json:"formatJid,omitempty"`
 	Quoted          QuotedStruct `json:"quoted"`
 	ForwardingScore *uint32      `json:"forwardingScore,omitempty"`
+	// Expiration: timer de mensagem temporaria em segundos (opcional; detectado automaticamente)
+	Expiration *uint32 `json:"expiration,omitempty"`
 }
 
 type PollStruct struct {
@@ -647,6 +652,7 @@ func (s *sendService) sendTextWithRetry(data *TextStruct, instance *instance_mod
 			MentionedJID:    data.MentionedJID,
 			FormatJid:       data.FormatJid,
 			ForwardingScore: data.ForwardingScore,
+			Expiration:      data.Expiration,
 		})
 
 		if err != nil {
@@ -1211,6 +1217,7 @@ func (s *sendService) sendMediaFileWithRetry(data *MediaStruct, fileData []byte,
 			FormatJid:       data.FormatJid,
 			MediaHandle:     uploaded.Handle,
 			ForwardingScore: data.ForwardingScore,
+			Expiration:      data.Expiration,
 		})
 
 		if err != nil {
@@ -1516,6 +1523,7 @@ func (s *sendService) sendMediaUrlWithRetry(data *MediaStruct, instance *instanc
 			FormatJid:       data.FormatJid,
 			MediaHandle:     uploaded.Handle,
 			ForwardingScore: data.ForwardingScore,
+			Expiration:      data.Expiration,
 		})
 
 		if err != nil {
@@ -2787,6 +2795,36 @@ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.
 	recipient.User = strings.ReplaceAll(recipient.User, "+", "")
 
 	s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Sending message to %s with ID %s", instance.Id, recipient.String(), message)
+
+	// Mensagem temporaria: usa o mesmo timer do chat para nao gerar o aviso
+	// "ocorreu um conflito entre as duracoes da mensagem temporaria".
+	if recipient.Server != "newsletter" && recipient.Server != types.BroadcastServer {
+		var exp uint32
+		known := false
+		if data.Expiration != nil {
+			exp, known = *data.Expiration, true
+		} else if recipient.Server == types.GroupServer {
+			if gi, gerr := s.clientPointer[instance.Id].GetGroupInfo(context.Background(), recipient); gerr == nil && gi != nil {
+				exp, known = gi.DisappearingTimer, true
+			}
+		} else {
+			alts := []types.JID{recipient}
+			if recipient.Server == types.DefaultUserServer {
+				if lid, lerr := s.clientPointer[instance.Id].Store.LIDs.GetLIDForPN(context.Background(), recipient); lerr == nil && !lid.IsEmpty() {
+					alts = append(alts, lid)
+				}
+			} else if recipient.Server == types.HiddenUserServer {
+				if pn, perr := s.clientPointer[instance.Id].Store.LIDs.GetPNForLID(context.Background(), recipient); perr == nil && !pn.IsEmpty() {
+					alts = append(alts, pn)
+				}
+			}
+			exp, known = utils.GetChatExpiration(instance.Id, alts...)
+		}
+		if known && exp > 0 {
+			utils.ApplyExpiration(msg, exp)
+			s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Disappearing timer %ds applied for %s", instance.Id, exp, recipient.String())
+		}
+	}
 
 	// Preparar extra parameters para o envio
 	sendExtra := whatsmeow.SendRequestExtra{ID: message}

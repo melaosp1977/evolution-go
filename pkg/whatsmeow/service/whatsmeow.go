@@ -1144,6 +1144,13 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		postMap["event"] = "Message"
 		// Message received
 
+		// Guarda o timer de mensagem temporaria do chat privado (usado no envio)
+		if !evt.Info.IsGroup && evt.Info.Chat.Server != types.BroadcastServer && evt.Info.Chat.Server != types.NewsletterServer {
+			if exp, ok := utils.MessageExpiration(evt.Message); ok {
+				utils.SetChatExpiration(mycli.userID, exp, evt.Info.Chat, evt.Info.SenderAlt, evt.Info.RecipientAlt)
+			}
+		}
+
 		// Log message arrival with detailed info
 		messageSize := "unknown"
 		if evt.Message.GetDocumentMessage() != nil && evt.Message.GetDocumentMessage().FileLength != nil {
