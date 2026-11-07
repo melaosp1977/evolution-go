@@ -1144,6 +1144,27 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		postMap["event"] = "Message"
 		// Message received
 
+		// Edicao no formato novo (secretEncryptedMessage): decifra e entrega como
+		// protocolMessage MESSAGE_EDIT, com a chave da mensagem original e o texto novo.
+		if sem := evt.Message.GetSecretEncryptedMessage(); sem != nil && sem.GetSecretEncType() == waE2E.SecretEncryptedMessage_MESSAGE_EDIT {
+			if cli := mycli.clientPointer[mycli.userID]; cli != nil {
+				if dec, derr := cli.DecryptSecretEncryptedMessage(context.Background(), evt); derr == nil && dec != nil {
+					edType := waE2E.ProtocolMessage_MESSAGE_EDIT
+					evt.Message = &waE2E.Message{
+						ProtocolMessage: &waE2E.ProtocolMessage{
+							Type:          &edType,
+							Key:           sem.GetTargetMessageKey(),
+							EditedMessage: dec,
+						},
+						MessageContextInfo: dec.GetMessageContextInfo(),
+					}
+					evt.IsEdit = true
+				} else {
+					mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] Failed to decrypt edited message: %v", mycli.userID, derr)
+				}
+			}
+		}
+
 		// Guarda o timer de mensagem temporaria do chat privado (usado no envio)
 		if !evt.Info.IsGroup && evt.Info.Chat.Server != types.BroadcastServer && evt.Info.Chat.Server != types.NewsletterServer {
 			if exp, ok := utils.MessageExpiration(evt.Message); ok {
