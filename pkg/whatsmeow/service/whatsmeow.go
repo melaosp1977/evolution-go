@@ -1402,6 +1402,13 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			dataMap["referral"] = referral
 		}
 
+		// Nomes das pessoas mencionadas (@numero), para o webhook mostrar o nome
+		if cli := mycli.clientPointer[mycli.userID]; cli != nil && cli.Store != nil {
+			if names := mentionNames(cli, evt.Message); len(names) > 0 {
+				dataMap["mentionNames"] = names
+			}
+		}
+
 		if mycli.config.WebhookFiles {
 			isMedia := false
 
@@ -2927,4 +2934,80 @@ func cleanSenderID(senderID string) string {
 		}
 	}
 	return senderID
+}
+
+// mentionNames resolve os JIDs mencionados na mensagem para nomes conhecidos
+// (agenda do celular, nome do perfil ou, no minimo, o numero de telefone).
+// A chave do mapa e o "user" do JID, igual ao que aparece no texto depois do @.
+func mentionNames(cli *whatsmeow.Client, m *waE2E.Message) map[string]string {
+	if m == nil {
+		return nil
+	}
+	if em := m.GetEphemeralMessage(); em != nil && em.GetMessage() != nil {
+		m = em.GetMessage()
+	}
+	var ci *waE2E.ContextInfo
+	switch {
+	case m.GetExtendedTextMessage() != nil:
+		ci = m.GetExtendedTextMessage().GetContextInfo()
+	case m.GetImageMessage() != nil:
+		ci = m.GetImageMessage().GetContextInfo()
+	case m.GetVideoMessage() != nil:
+		ci = m.GetVideoMessage().GetContextInfo()
+	case m.GetDocumentMessage() != nil:
+		ci = m.GetDocumentMessage().GetContextInfo()
+	case m.GetAudioMessage() != nil:
+		ci = m.GetAudioMessage().GetContextInfo()
+	}
+	if ci == nil || len(ci.GetMentionedJID()) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out := map[string]string{}
+	for i, js := range ci.GetMentionedJID() {
+		if i >= 30 {
+			break
+		}
+		jid, err := types.ParseJID(js)
+		if err != nil || jid.User == "" {
+			continue
+		}
+		cands := []types.JID{jid.ToNonAD()}
+		var pn types.JID
+		if jid.Server == types.HiddenUserServer && cli.Store.LIDs != nil {
+			if p, perr := cli.Store.LIDs.GetPNForLID(ctx, jid.ToNonAD()); perr == nil && !p.IsEmpty() {
+				pn = p.ToNonAD()
+				cands = append(cands, pn)
+			}
+		} else if jid.Server == types.DefaultUserServer {
+			pn = jid.ToNonAD()
+		}
+		name := ""
+		for _, c := range cands {
+			if cli.Store.Contacts == nil {
+				break
+			}
+			info, cerr := cli.Store.Contacts.GetContact(ctx, c)
+			if cerr != nil || !info.Found {
+				continue
+			}
+			for _, n := range []string{info.FullName, info.FirstName, info.PushName, info.BusinessName} {
+				if strings.TrimSpace(n) != "" {
+					name = strings.TrimSpace(n)
+					break
+				}
+			}
+			if name != "" {
+				break
+			}
+		}
+		if name == "" && !pn.IsEmpty() {
+			name = "+" + pn.User
+		}
+		if name != "" {
+			out[jid.User] = name
+		}
+	}
+	return out
 }
